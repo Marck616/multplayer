@@ -49,105 +49,115 @@ io.on('connection', (socket) => {
         console.log(`Sala ${roomCode} criada por ${socket.id}`);
     });
 
+
+
+
+
+
+
+
+
+    
     // Entrar na sala
-    socket.on('join-room', (roomCode, callback) => {
-        const room = rooms.get(roomCode);
+// Modifique o evento 'join-room' no servidor:
+socket.on('join-room', (roomCode, callback) => {
+    const room = rooms.get(roomCode);
+    
+    if (!room) {
+        callback({ success: false, error: 'Sala não encontrada' });
+        return;
+    }
+    
+    if (room.players.length >= 2) {
+        callback({ success: false, error: 'Sala cheia' });
+        return;
+    }
+    
+    room.players.push(socket.id);
+    socket.join(roomCode);
+
+
+
+
+
+
+
+
+
+
         
-        if (!room) {
-            callback({ success: false, error: 'Sala não encontrada' });
-            return;
-        }
-        
-        if (room.players.length >= 2) {
-            callback({ success: false, error: 'Sala cheia' });
-            return;
-        }
-        
-        room.players.push(socket.id);
+    // Notificar host que jogador entrou
+    if (room.players.length === 2) {
         room.status = 'ready';
-        socket.join(roomCode);
-        
-        // Notificar ambos os jogadores
-        io.to(roomCode).emit('room-ready', {
+        io.to(room.host).emit('room-ready', {
             players: room.players,
-            isHost: room.host === socket.id
+            isHost: true
         });
         
-        callback({ success: true });
-        console.log(`${socket.id} entrou na sala ${roomCode}`);
-    });
+        // Enviar confirmação para o jogador que entrou
+        callback({ 
+            success: true,
+            isHost: false
+        });
+    }
+});
 
-    // Iniciar jogo
-    socket.on('start-game', (data) => {
-        const { roomCode, theme, questions } = data;
-        const room = rooms.get(roomCode);
+// Modifique o evento 'start-game':
+socket.on('start-game', (data) => {
+    const { roomCode, theme } = data;
+    const room = rooms.get(roomCode);
+    
+    if (room && room.host === socket.id) {
+        // Carregar perguntas para o tema selecionado
+        const questions = window.gameDatabase.getQuestionsByTheme(theme, 20);
         
-        if (room && room.host === socket.id) {
-            room.gameState = {
-                theme,
-                questions,
-                currentQuestionIndex: 0,
-                currentPlayer: 0,
-                gameTimer: 600,
-                questionTimer: 30,
-                players: [
-                    {
-                        id: room.players[0],
-                        name: 'Jogador 1',
-                        castle: Array(9).fill(true),
-                        bombs: 0,
-                        streak: 0,
-                        correctAnswers: 0
-                    },
-                    {
-                        id: room.players[1],
-                        name: 'Jogador 2',
-                        castle: Array(9).fill(true),
-                        bombs: 0,
-                        streak: 0,
-                        correctAnswers: 0
-                    }
-                ]
-            };
-            
-            io.to(roomCode).emit('game-started', room.gameState);
-            console.log(`Jogo iniciado na sala ${roomCode}`);
-        }
-    });
-
-    // Resposta da pergunta
-    socket.on('answer-question', (data) => {
-        const { roomCode, answerIndex, playerId } = data;
-        const room = rooms.get(roomCode);
-        
-        if (room && room.gameState) {
-            const gameState = room.gameState;
-            const currentQuestion = gameState.questions[gameState.currentQuestionIndex];
-            const isCorrect = answerIndex === currentQuestion.correctAnswer;
-            const playerIndex = gameState.players.findIndex(p => p.id === playerId);
-            
-            if (playerIndex !== -1) {
-                const player = gameState.players[playerIndex];
-                
-                if (isCorrect) {
-                    player.bombs++;
-                    player.streak++;
-                    player.correctAnswers++;
-                } else {
-                    player.streak = 0;
+        room.gameState = {
+            theme,
+            questions,
+            currentQuestionIndex: 0,
+            currentPlayer: 0, // Índice do array de jogadores
+            gameTimer: 600,
+            questionTimer: 30,
+            players: [
+                {
+                    id: room.players[0],
+                    name: 'Jogador 1',
+                    castle: Array(9).fill(true),
+                    bombs: 0,
+                    streak: 0,
+                    correctAnswers: 0
+                },
+                {
+                    id: room.players[1],
+                    name: 'Jogador 2',
+                    castle: Array(9).fill(true),
+                    bombs: 0,
+                    streak: 0,
+                    correctAnswers: 0
                 }
-                
-                // Enviar resultado para todos na sala
-                io.to(roomCode).emit('answer-result', {
-                    playerId,
-                    isCorrect,
-                    correctAnswer: currentQuestion.correctAnswer,
-                    explanation: currentQuestion.explanation,
-                    gameState
-                });
-            }
-        }
-    });
+            ]
+        };
+        
+        // Enviar estado do jogo para todos na sala
+        io.to(roomCode).emit('game-started', room.gameState);
+    }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
 
     // Atacar castelo
     socket.on('attack-castle', (data) => {
