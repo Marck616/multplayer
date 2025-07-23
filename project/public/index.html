@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo da Velha Online Multiplayer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Tela de Login -->
+        <div id="loginScreen" class="screen active">
+            <div class="login-card">
+                <h1>🎮 Jogo da Velha Online</h1>
+                <p>Entre na sala e jogue contra outros players!</p>
+                
+                <form id="loginForm">
+                    <div class="input-group">
+                        <label for="playerName">Nome do Jogador:</label>
+                        <input type="text" id="playerName" required maxlength="20" placeholder="Digite seu nome">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="playerColor">Sua Cor:</label>
+                        <div class="color-options">
+                            <input type="radio" id="color1" name="playerColor" value="#FF6B6B" checked>
+                            <label for="color1" class="color-option" style="background-color: #FF6B6B;"></label>
+                            
+                            <input type="radio" id="color2" name="playerColor" value="#4ECDC4">
+                            <label for="color2" class="color-option" style="background-color: #4ECDC4;"></label>
+                            
+                            <input type="radio" id="color3" name="playerColor" value="#45B7D1">
+                            <label for="color3" class="color-option" style="background-color: #45B7D1;"></label>
+                            
+                            <input type="radio" id="color4" name="playerColor" value="#FFA07A">
+                            <label for="color4" class="color-option" style="background-color: #FFA07A;"></label>
+                            
+                            <input type="radio" id="color5" name="playerColor" value="#98D8C8">
+                            <label for="color5" class="color-option" style="background-color: #98D8C8;"></label>
+                            
+                            <input type="radio" id="color6" name="playerColor" value="#F7DC6F">
+                            <label for="color6" class="color-option" style="background-color: #F7DC6F;"></label>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary">Entrar na Sala</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Tela do Jogo -->
+        <div id="gameScreen" class="screen">
+            <div class="game-layout">
+                <!-- Sidebar com informações -->
+                <div class="sidebar">
+                    <div class="game-info">
+                        <h2>🏆 Ranking</h2>
+                        <div id="rankings" class="rankings-list"></div>
+                    </div>
+                    
+                    <div class="queue-info">
+                        <h3>📋 Fila de Espera</h3>
+                        <div id="queue" class="queue-list"></div>
+                    </div>
+                </div>
+
+                <!-- Área principal do jogo -->
+                <div class="game-area">
+                    <div class="current-game">
+                        <div id="gameStatus" class="game-status">
+                            Aguardando jogadores...
+                        </div>
+                        
+                        <div id="currentPlayers" class="current-players"></div>
+                        
+                        <div id="gameBoard" class="game-board">
+                            <div class="cell" data-cell="0"></div>
+                            <div class="cell" data-cell="1"></div>
+                            <div class="cell" data-cell="2"></div>
+                            <div class="cell" data-cell="3"></div>
+                            <div class="cell" data-cell="4"></div>
+                            <div class="cell" data-cell="5"></div>
+                            <div class="cell" data-cell="6"></div>
+                            <div class="cell" data-cell="7"></div>
+                            <div class="cell" data-cell="8"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="notifications" class="notifications"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
