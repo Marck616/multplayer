@@ -222,26 +222,52 @@ function selectTheme(themeId) {
     document.getElementById('start-game-btn').disabled = false;
 }
 
+
+
+
+
+
+
+
+
+
+
 function startGame() {
     if (!gameState.selectedTheme) {
         alert('Selecione um tema primeiro!');
         return;
     }
     
-    // Carrega perguntas do tema selecionado
-    gameState.questions = gameDatabase.getQuestionsByTheme(gameState.selectedTheme, 20);
-    
-    if (gameState.questions.length === 0) {
-        alert('Não há perguntas disponíveis para este tema.');
-        return;
+    if (gameState.mode === 'multi' && gameState.isHost) {
+        socket.emit('start-game', {
+            roomCode: gameState.roomCode,
+            theme: gameState.selectedTheme
+        });
+    } else {
+        // Lógica single-player permanece a mesma
+        gameState.questions = gameDatabase.getQuestionsByTheme(gameState.selectedTheme, 20);
+        
+        if (gameState.questions.length === 0) {
+            alert('Não há perguntas disponíveis para este tema.');
+            return;
+        }
+        
+        initializeGame();
+        showScreen('game-screen');
+        startGameTimers();
+        loadCurrentQuestion();
     }
-    
-    // Inicializa o jogo
-    initializeGame();
-    showScreen('game-screen');
-    startGameTimers();
-    loadCurrentQuestion();
 }
+
+
+
+
+
+
+
+
+
+
 
 function initializeGame() {
     // Reseta estado dos jogadores
