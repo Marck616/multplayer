@@ -70,23 +70,39 @@ function startSinglePlayer() {
     showThemeSelection();
 }
 
+
+
+
+
+
+
+
+
+
+
+// Modifique a função createRoom para usar Socket.IO
 function createRoom() {
-    gameState.mode = 'multi';
-    gameState.isHost = true;
-    gameState.roomCode = generateRoomCode();
-    
-    document.getElementById('room-code-display').textContent = gameState.roomCode;
-    
-    // Salva a sala no localStorage (simulando servidor)
-    localStorage.setItem(`room_${gameState.roomCode}`, JSON.stringify({
-        host: 'player1',
-        players: 1,
-        status: 'waiting'
-    }));
-    
-    showScreen('waiting-room-screen');
-    checkForPlayer2();
+    socket.emit('create-room', (response) => {
+        if (response.success) {
+            gameState.mode = 'multi';
+            gameState.isHost = true;
+            gameState.roomCode = response.roomCode;
+            document.getElementById('room-code-display').textContent = response.roomCode;
+            showScreen('waiting-room-screen');
+        }
+    });
 }
+
+
+
+
+
+
+
+
+
+
+
 
 function generateRoomCode() {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -103,38 +119,59 @@ function copyRoomCode() {
     });
 }
 
+
+
+
+
+
+
+// Modifique a função joinRoom para usar Socket.IO
 function joinRoom() {
     const code = document.getElementById('room-code-input').value.toUpperCase();
-    if (!code || code.length !== 6) {
-        alert('Por favor, insira um código válido de 6 caracteres.');
-        return;
-    }
-    
-    const roomData = localStorage.getItem(`room_${code}`);
-    if (!roomData) {
-        alert('Sala não encontrada. Verifique o código.');
-        return;
-    }
-    
-    const room = JSON.parse(roomData);
-    if (room.players >= 2) {
-        alert('Esta sala já está cheia.');
-        return;
-    }
-    
-    gameState.mode = 'multi';
-    gameState.isHost = false;
-    gameState.roomCode = code;
-    gameState.players[1].name = 'Jogador 2';
-    gameState.players[2].name = 'Jogador 1';
-    
-    // Atualiza a sala
-    room.players = 2;
-    room.status = 'ready';
-    localStorage.setItem(`room_${code}`, JSON.stringify(room));
-    
-    showThemeSelection();
+    socket.emit('join-room', code, (response) => {
+        if (response.success) {
+            gameState.mode = 'multi';
+            gameState.isHost = false;
+            gameState.roomCode = code;
+            showThemeSelection();
+        } else {
+            alert(response.error || 'Erro ao entrar na sala');
+        }
+    });
 }
+
+// Adicione listeners para eventos do Socket.IO
+socket.on('room-ready', (data) => {
+    if (gameState.isHost) {
+        // Host recebe notificação que o segundo jogador entrou
+        document.querySelector('#waiting-room-screen p').textContent = 'Jogador 2 conectado!';
+        document.getElementById('start-game-btn').disabled = false;
+    }
+});
+
+socket.on('game-started', (state) => {
+    gameState = { ...gameState, ...state };
+    initializeGame();
+    showScreen('game-screen');
+    startGameTimers();
+    loadCurrentQuestion();
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function checkForPlayer2() {
     const interval = setInterval(() => {
