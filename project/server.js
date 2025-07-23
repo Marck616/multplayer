@@ -1,277 +1,188 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const path = require('path');
+const cors = require('cors');
 
 const app = express();
+app.use(cors());
 const server = http.createServer(app);
 const io = socketIo(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
-// Servir arquivos estáticos
-app.use(express.static(path.join(__dirname, 'public')));
+// Estado do jogo
+const gameState = {
+  players: [],
+  queue: [],
+  currentGame: null,
+  scores: {}
+};
 
-// Armazenar salas ativas
-const rooms = new Map();
-
-// Gerar código de sala
-function generateRoomCode() {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-        code += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    return code;
-}
+// Cores disponíveis
+const availableColors = [
+  '#FF5733', '#33FF57', '#3357FF', '#F333FF', 
+  '#FF33F3', '#33FFF5', '#FFC733', '#7C33FF'
+];
 
 io.on('connection', (socket) => {
-    console.log('Usuário conectado:', socket.id);
+  console.log('Novo cliente conectado:', socket.id);
 
-    // Criar sala
-    socket.on('create-room', (callback) => {
-        const roomCode = generateRoomCode();
-        const room = {
-            code: roomCode,
-            host: socket.id,
-            players: [socket.id],
-            status: 'waiting',
-            gameState: null
-        };
-        
-        rooms.set(roomCode, room);
-        socket.join(roomCode);
-        
-        callback({ success: true, roomCode });
-        console.log(`Sala ${roomCode} criada por ${socket.id}`);
-    });
+  // Enviar estado atual para o novo jogador
+  socket.emit('update', gameState);
 
+  // Lidar com novo jogador
+  socket.on('register', (playerName) => {
+    if (gameState.players.some(p => p.id === socket.id)) {
+      return;
+    }
 
+    const color = availableColors[gameState.players.length % availableColors.length];
+    const player = {
+      id: socket.id,
+      name: playerName,
+      color,
+      wins: 0
+    };
 
+    gameState.players.push(player);
+    gameState.queue.push(player.id);
+    gameState.scores[player.id] = 0;
 
+    console.log(`Jogador registrado: ${playerName} (${socket.id})`);
 
+    // Se houver pelo menos 2 jogadores e nenhum jogo em andamento, iniciar jogo
+    if (gameState.queue.length >= 2 && !gameState.currentGame) {
+      startNewGame();
+    }
 
+    io.emit('update', gameState);
+  });
 
+  // Lidar com movimento do jogador
+  socket.on('move', (index) => {
+    if (!gameState.currentGame || 
+        gameState.currentGame.currentPlayer !== socket.id || 
+        gameState.currentGame.board[index] !== null) {
+      return;
+    }
 
+    const player = gameState.players.find(p => p.id === socket.id);
+    gameState.currentGame.board[index] = player;
+    gameState.currentGame.currentPlayer = 
+      gameState.currentGame.player1 === socket.id ? 
+      gameState.currentGame.player2 : gameState.currentGame.player1;
 
+    // Verificar vitória
+    const winner = checkWinner(gameState.currentGame.board);
+    if (winner) {
+      endGame(winner);
+    } else if (gameState.currentGame.board.every(cell => cell !== null)) {
+      endGame(null); // Empate
+    }
+
+    io.emit('update', gameState);
+  });
+
+  // Lidar com desconexão
+  socket.on('disconnect', () => {
+    console.log('Cliente desconectado:', socket.id);
     
-    // Entrar na sala
-// Modifique o evento 'join-room' no servidor:
-socket.on('join-room', (roomCode, callback) => {
-    const room = rooms.get(roomCode);
+    // Remover jogador da fila
+    gameState.queue = gameState.queue.filter(id => id !== socket.id);
     
-    if (!room) {
-        callback({ success: false, error: 'Sala não encontrada' });
-        return;
+    // Se o jogador estava em um jogo em andamento, finalizar
+    if (gameState.currentGame && 
+        (gameState.currentGame.player1 === socket.id || 
+         gameState.currentGame.player2 === socket.id)) {
+      endGame(gameState.currentGame.player1 === socket.id ? 
+              gameState.currentGame.player2 : gameState.currentGame.player1);
     }
     
-    if (room.players.length >= 2) {
-        callback({ success: false, error: 'Sala cheia' });
-        return;
+    // Remover jogador da lista
+    gameState.players = gameState.players.filter(p => p.id !== socket.id);
+    delete gameState.scores[socket.id];
+    
+    io.emit('update', gameState);
+  });
+
+  // Função para iniciar novo jogo
+  function startNewGame() {
+    if (gameState.queue.length < 2) return;
+    
+    const player1Id = gameState.queue[0];
+    const player2Id = gameState.queue[1];
+    
+    gameState.currentGame = {
+      player1: player1Id,
+      player2: player2Id,
+      currentPlayer: player1Id,
+      board: Array(9).fill(null)
+    };
+    
+    // Remover jogadores da fila (eles serão readicionados no final do jogo)
+    gameState.queue = gameState.queue.slice(2);
+    
+    console.log(`Novo jogo iniciado: ${player1Id} vs ${player2Id}`);
+    io.emit('update', gameState);
+  }
+
+  // Função para verificar vencedor
+  function checkWinner(board) {
+    const winPatterns = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // linhas
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // colunas
+      [0, 4, 8], [2, 4, 6]             // diagonais
+    ];
+
+    for (const pattern of winPatterns) {
+      const [a, b, c] = pattern;
+      if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+        return board[a].id;
+      }
+    }
+    return null;
+  }
+
+  // Função para finalizar jogo
+  function endGame(winnerId) {
+    if (!gameState.currentGame) return;
+    
+    const { player1, player2 } = gameState.currentGame;
+    
+    if (winnerId) {
+      const winner = gameState.players.find(p => p.id === winnerId);
+      winner.wins++;
+      gameState.scores[winnerId]++;
+      
+      // Adicionar o vencedor de volta à fila na frente
+      gameState.queue.unshift(winnerId);
+      
+      // Adicionar o perdedor no final da fila
+      const loserId = winnerId === player1 ? player2 : player1;
+      gameState.queue.push(loserId);
+      
+      console.log(`Jogo finalizado. Vencedor: ${winner.name}`);
+    } else {
+      // Em caso de empate, ambos voltam para a fila
+      gameState.queue.push(player1, player2);
+      console.log('Jogo finalizado em empate');
     }
     
-    room.players.push(socket.id);
-    socket.join(roomCode);
-
-
-
-
-
-
-
-
-
-
-        
-    // Notificar host que jogador entrou
-    if (room.players.length === 2) {
-        room.status = 'ready';
-        io.to(room.host).emit('room-ready', {
-            players: room.players,
-            isHost: true
-        });
-        
-        // Enviar confirmação para o jogador que entrou
-        callback({ 
-            success: true,
-            isHost: false
-        });
-    }
-});
-
-// Modifique o evento 'start-game':
-socket.on('start-game', (data) => {
-    const { roomCode, theme } = data;
-    const room = rooms.get(roomCode);
+    gameState.currentGame = null;
     
-    if (room && room.host === socket.id) {
-        // Carregar perguntas para o tema selecionado
-        const questions = window.gameDatabase.getQuestionsByTheme(theme, 20);
-        
-        room.gameState = {
-            theme,
-            questions,
-            currentQuestionIndex: 0,
-            currentPlayer: 0, // Índice do array de jogadores
-            gameTimer: 600,
-            questionTimer: 30,
-            players: [
-                {
-                    id: room.players[0],
-                    name: 'Jogador 1',
-                    castle: Array(9).fill(true),
-                    bombs: 0,
-                    streak: 0,
-                    correctAnswers: 0
-                },
-                {
-                    id: room.players[1],
-                    name: 'Jogador 2',
-                    castle: Array(9).fill(true),
-                    bombs: 0,
-                    streak: 0,
-                    correctAnswers: 0
-                }
-            ]
-        };
-        
-        // Enviar estado do jogo para todos na sala
-        io.to(roomCode).emit('game-started', room.gameState);
+    // Iniciar novo jogo se houver jogadores suficientes
+    if (gameState.queue.length >= 2) {
+      startNewGame();
     }
-});
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     
-
-    // Atacar castelo
-    socket.on('attack-castle', (data) => {
-        const { roomCode, targetPlayerId, blockIndex, attackerId } = data;
-        const room = rooms.get(roomCode);
-        
-        if (room && room.gameState) {
-            const gameState = room.gameState;
-            const targetPlayerIndex = gameState.players.findIndex(p => p.id === targetPlayerId);
-            const attackerIndex = gameState.players.findIndex(p => p.id === attackerId);
-            
-            if (targetPlayerIndex !== -1 && attackerIndex !== -1) {
-                // Destruir bloco
-                gameState.players[targetPlayerIndex].castle[blockIndex] = false;
-                gameState.players[attackerIndex].bombs--;
-                
-                // Verificar se o castelo foi completamente destruído
-                const castleDestroyed = gameState.players[targetPlayerIndex].castle.every(block => !block);
-                
-                io.to(roomCode).emit('castle-attacked', {
-                    targetPlayerId,
-                    blockIndex,
-                    gameState,
-                    castleDestroyed
-                });
-                
-                if (castleDestroyed) {
-                    io.to(roomCode).emit('game-ended', {
-                        winner: attackerId,
-                        reason: 'castle_destroyed'
-                    });
-                }
-            }
-        }
-    });
-
-    // Reparar castelo
-    socket.on('repair-castle', (data) => {
-        const { roomCode, playerId, blockIndex } = data;
-        const room = rooms.get(roomCode);
-        
-        if (room && room.gameState) {
-            const gameState = room.gameState;
-            const playerIndex = gameState.players.findIndex(p => p.id === playerId);
-            
-            if (playerIndex !== -1) {
-                gameState.players[playerIndex].castle[blockIndex] = true;
-                gameState.players[playerIndex].streak = 0;
-                
-                io.to(roomCode).emit('castle-repaired', {
-                    playerId,
-                    blockIndex,
-                    gameState
-                });
-            }
-        }
-    });
-
-    // Próxima pergunta
-    socket.on('next-question', (roomCode) => {
-        const room = rooms.get(roomCode);
-        
-        if (room && room.gameState) {
-            const gameState = room.gameState;
-            gameState.currentQuestionIndex++;
-            gameState.currentPlayer = gameState.currentPlayer === 0 ? 1 : 0;
-            
-            if (gameState.currentQuestionIndex >= gameState.questions.length) {
-                // Fim do jogo por falta de perguntas
-                const player1Blocks = gameState.players[0].castle.filter(block => block).length;
-                const player2Blocks = gameState.players[1].castle.filter(block => block).length;
-                
-                let winner = null;
-                if (player1Blocks > player2Blocks) {
-                    winner = gameState.players[0].id;
-                } else if (player2Blocks > player1Blocks) {
-                    winner = gameState.players[1].id;
-                }
-                
-                io.to(roomCode).emit('game-ended', {
-                    winner,
-                    reason: 'questions_finished',
-                    finalScores: { player1Blocks, player2Blocks }
-                });
-            } else {
-                io.to(roomCode).emit('next-question', gameState);
-            }
-        }
-    });
-
-    // Desconexão
-    socket.on('disconnect', () => {
-        console.log('Usuário desconectado:', socket.id);
-        
-        // Remover jogador das salas
-        for (const [roomCode, room] of rooms.entries()) {
-            const playerIndex = room.players.indexOf(socket.id);
-            if (playerIndex !== -1) {
-                room.players.splice(playerIndex, 1);
-                
-                if (room.players.length === 0) {
-                    rooms.delete(roomCode);
-                    console.log(`Sala ${roomCode} removida`);
-                } else {
-                    // Notificar jogador restante
-                    io.to(roomCode).emit('player-disconnected');
-                }
-                break;
-            }
-        }
-    });
+    io.emit('update', gameState);
+  }
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
