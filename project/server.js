@@ -1,279 +1,298 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const path = require('path');
-
-const app = express();
-const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
-
-// Servir arquivos estáticos
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Estado do jogo
-let gameState = {
-  players: [], // Lista de todos os jogadores
-  currentGame: {
-    player1: null,
-    player2: null,
-    board: Array(9).fill(''),
-    currentPlayer: 'X',
-    gameActive: false
-  },
-  queue: [], // Fila de espera
-  rankings: {} // Ranking de vitórias
-};
-
-// Função para resetar o tabuleiro
-function resetBoard() {
-  gameState.currentGame.board = Array(9).fill('');
-  gameState.currentGame.currentPlayer = 'X';
-  gameState.currentGame.gameActive = true;
-}
-
-// Função para verificar vitória
-function checkWinner(board) {
-  const winPatterns = [
-    [0, 1, 2], [3, 4, 5], [6, 7, 8], // Linhas
-    [0, 3, 6], [1, 4, 7], [2, 5, 8], // Colunas
-    [0, 4, 8], [2, 4, 6] // Diagonais
-  ];
-
-  for (let pattern of winPatterns) {
-    const [a, b, c] = pattern;
-    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-      return board[a];
-    }
-  }
-
-  if (board.every(cell => cell !== '')) {
-    return 'draw';
-  }
-
-  return null;
-}
-
-// Função para organizar próximo jogo
-function organizeNextGame() {
-  console.log(`Organizando próximo jogo. Fila atual: ${gameState.queue.length} jogadores`);
-  
-  if (gameState.queue.length >= 2) {
-    gameState.currentGame.player1 = gameState.queue.shift();
-    gameState.currentGame.player2 = gameState.queue.shift();
-    resetBoard();
-    
-    console.log(`Jogo iniciado: ${gameState.currentGame.player1.name} vs ${gameState.currentGame.player2.name}`);
-    
-    // Emitir para todos os jogadores o estado atualizado primeiro
-    io.emit('playersUpdate', {
-      players: gameState.players,
-      queue: gameState.queue,
-      currentGame: gameState.currentGame
-    });
-    
-    // Depois emitir o início do jogo
-    io.emit('gameStart', {
-      player1: gameState.currentGame.player1,
-      player2: gameState.currentGame.player2,
-      board: gameState.currentGame.board,
-      currentPlayer: gameState.currentGame.currentPlayer
-    });
-  } else {
-    console.log('Não há jogadores suficientes para iniciar um jogo');
-    gameState.currentGame.player1 = null;
-    gameState.currentGame.player2 = null;
-    gameState.currentGame.gameActive = false;
-    
-    // Emitir estado atualizado
-    io.emit('playersUpdate', {
-      players: gameState.players,
-      queue: gameState.queue,
-      currentGame: gameState.currentGame
-    });
-  }
-}
-
-// Função para atualizar rankings
-function updateRankings() {
-  const sortedPlayers = gameState.players
-    .map(player => ({
-      ...player,
-      wins: gameState.rankings[player.id] || 0
-    }))
-    .sort((a, b) => b.wins - a.wins);
-  
-  io.emit('rankingsUpdate', sortedPlayers);
-}
-
-io.on('connection', (socket) => {
-  console.log('Usuário conectado:', socket.id);
-
-  // Jogador entra no jogo
-  socket.on('joinGame', (playerData) => {
-    const player = {
-      id: socket.id,
-      name: playerData.name,
-      color: playerData.color
-    };
-
-    gameState.players.push(player);
-    
-    // Inicializar ranking se não existir
-    if (!gameState.rankings[socket.id]) {
-      gameState.rankings[socket.id] = 0;
-    }
-
-    // Adicionar à fila
-    gameState.queue.push(player);
-
-    console.log(`Jogador ${player.name} entrou. Total na fila: ${gameState.queue.length}`);
-
-    // Emitir estado atual para todos
-    io.emit('playersUpdate', {
-      players: gameState.players,
-      queue: gameState.queue,
-      currentGame: gameState.currentGame
-    });
-
-    updateRankings();
-
-    // Se não há jogo ativo e temos pelo menos 2 jogadores, iniciar jogo
-    if (!gameState.currentGame.gameActive && gameState.queue.length >= 2) {
-      console.log('Iniciando novo jogo...');
-      organizeNextGame();
-    }
-  });
-
-  // Jogada realizada
-  socket.on('makeMove', (data) => {
-    console.log(`Jogada recebida de ${socket.id}:`, data);
-    
-    if (!gameState.currentGame.gameActive) {
-      console.log('Jogo não está ativo');
-      return;
-    }
-    
-    const { cellIndex } = data;
-    const isPlayer1 = socket.id === gameState.currentGame.player1?.id;
-    const isPlayer2 = socket.id === gameState.currentGame.player2?.id;
-    
-    console.log(`Player1: ${gameState.currentGame.player1?.id}, Player2: ${gameState.currentGame.player2?.id}`);
-    console.log(`É Player1: ${isPlayer1}, É Player2: ${isPlayer2}`);
-    console.log(`Jogador atual: ${gameState.currentGame.currentPlayer}`);
-    
-    // Verificar se é a vez do jogador e se a célula está vazia
-    if ((isPlayer1 && gameState.currentGame.currentPlayer === 'X') ||
-        (isPlayer2 && gameState.currentGame.currentPlayer === 'O')) {
-      
-      if (gameState.currentGame.board[cellIndex] === '') {
-        // Fazer a jogada
-        gameState.currentGame.board[cellIndex] = gameState.currentGame.currentPlayer;
-        console.log(`Jogada realizada na posição ${cellIndex} com ${gameState.currentGame.currentPlayer}`);
+class TicTacToeGame {
+    constructor() {
+        this.socket = io();
+        this.currentPlayer = null;
+        this.gameState = null;
+        this.rankings = [];
         
-        // Verificar vitória
-        const winner = checkWinner(gameState.currentGame.board);
+        this.initializeEventListeners();
+        this.setupSocketEvents();
+    }
+
+    initializeEventListeners() {
+        // Form de login
+        const loginForm = document.getElementById('loginForm');
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.joinGame();
+        });
+
+        // Cliques no tabuleiro
+        const cells = document.querySelectorAll('.cell');
+        cells.forEach((cell, index) => {
+            cell.addEventListener('click', () => {
+                this.makeMove(index);
+            });
+        });
+    }
+
+    setupSocketEvents() {
+        // Atualização dos jogadores
+        this.socket.on('playersUpdate', (data) => {
+            console.log('Players update received:', data);
+            this.updateGameState(data);
+        });
+
+        // Início de jogo
+        this.socket.on('gameStart', (data) => {
+            console.log('Game start received:', data);
+            this.handleGameStart(data);
+        });
+
+        // Atualização do tabuleiro
+        this.socket.on('boardUpdate', (data) => {
+            console.log('Board update received:', data);
+            this.updateBoard(data);
+        });
+
+        // Fim de jogo
+        this.socket.on('gameEnd', (data) => {
+            console.log('Game end received:', data);
+            this.handleGameEnd(data);
+        });
+
+        // Atualização do ranking
+        this.socket.on('rankingsUpdate', (rankings) => {
+            console.log('Rankings update received:', rankings);
+            this.updateRankings(rankings);
+        });
+
+        // Jogador desconectou
+        this.socket.on('playerDisconnected', (message) => {
+            this.showNotification(message, 'warning');
+        });
+
+        // Reset do tabuleiro
+        this.socket.on('boardReset', (data) => {
+            console.log('Board reset received:', data);
+            this.clearBoard();
+        });
+
+        // Movimento inválido
+        this.socket.on('invalidMove', (data) => {
+            this.showNotification(data.message, 'warning');
+        });
+    }
+
+    joinGame() {
+        const name = document.getElementById('playerName').value.trim();
+        const color = document.querySelector('input[name="playerColor"]:checked').value;
+
+        if (!name) {
+            this.showNotification('Por favor, digite seu nome!', 'error');
+            return;
+        }
+
+        this.currentPlayer = { name, color };
         
-        if (winner) {
-          gameState.currentGame.gameActive = false;
-          console.log(`Jogo terminou. Vencedor: ${winner}`);
-          
-          let winnerPlayer = null;
-          let loserPlayer = null;
-          
-          if (winner === 'X') {
-            winnerPlayer = gameState.currentGame.player1;
-            loserPlayer = gameState.currentGame.player2;
-          } else if (winner === 'O') {
-            winnerPlayer = gameState.currentGame.player2;
-            loserPlayer = gameState.currentGame.player1;
-          }
-          
-          // Atualizar rankings
-          if (winnerPlayer) {
-            gameState.rankings[winnerPlayer.id]++;
-            console.log(`${winnerPlayer.name} ganhou! Total de vitórias: ${gameState.rankings[winnerPlayer.id]}`);
+        this.socket.emit('joinGame', { name, color });
+        
+        // Trocar para tela do jogo
+        document.getElementById('loginScreen').classList.remove('active');
+        document.getElementById('gameScreen').classList.add('active');
+        
+        this.showNotification(`Bem-vindo, ${name}!`, 'success');
+    }
+
+    updateGameState(data) {
+        this.gameState = data;
+        console.log('Game state updated:', this.gameState);
+        this.updateQueue();
+        this.updateGameStatus();
+    }
+
+    updateQueue() {
+        const queueContainer = document.getElementById('queue');
+        queueContainer.innerHTML = '';
+
+        if (this.gameState.queue.length === 0) {
+            queueContainer.innerHTML = '<p>Fila vazia</p>';
+            return;
+        }
+
+        this.gameState.queue.forEach((player, index) => {
+            const queueItem = document.createElement('div');
+            queueItem.className = 'queue-item';
             
-            // Winner vai para o início da fila, loser vai para o fim
-            gameState.queue.unshift(winnerPlayer);
-            gameState.queue.push(loserPlayer);
-          } else {
-            console.log('Empate!');
-            // Empate - ambos vão para o fim da fila
-            gameState.queue.push(gameState.currentGame.player1);
-            gameState.queue.push(gameState.currentGame.player2);
-          }
-          
-          // Emitir resultado do jogo
-          io.emit('gameEnd', {
-            winner: winner,
-            winnerPlayer: winnerPlayer,
-            board: gameState.currentGame.board
-          });
-          
-          updateRankings();
-          
-          // Organizar próximo jogo após 3 segundos
-          setTimeout(() => {
-            organizeNextGame();
-          }, 3000);
-          
-        } else {
-          // Alternar jogador
-          gameState.currentGame.currentPlayer = gameState.currentGame.currentPlayer === 'X' ? 'O' : 'X';
-          console.log(`Próximo jogador: ${gameState.currentGame.currentPlayer}`);
+            queueItem.innerHTML = `
+                <span class="queue-position">${index + 1}.</span>
+                <div class="player-color" style="background-color: ${player.color};"></div>
+                <span class="player-name">${player.name}</span>
+            `;
+            
+            queueContainer.appendChild(queueItem);
+        });
+    }
+
+    updateGameStatus() {
+        const statusElement = document.getElementById('gameStatus');
+        const playersContainer = document.getElementById('currentPlayers');
+        
+        console.log('Updating game status. Game active:', this.gameState?.currentGame?.gameActive);
+        
+        if (!this.gameState.currentGame.gameActive) {
+            if (this.gameState.queue.length < 2) {
+                statusElement.textContent = 'Aguardando mais jogadores...';
+                playersContainer.innerHTML = '';
+            } else {
+                statusElement.textContent = 'Preparando próximo jogo...';
+                playersContainer.innerHTML = '';
+            }
+            return;
+        }
+
+        const { player1, player2, currentPlayer } = this.gameState.currentGame;
+        
+        if (!player1 || !player2) {
+            statusElement.textContent = 'Carregando jogadores...';
+            return;
         }
         
-        // Emitir atualização do tabuleiro
-        io.emit('boardUpdate', {
-          board: gameState.currentGame.board,
-          currentPlayer: gameState.currentGame.currentPlayer
+        // Atualizar jogadores atuais
+        playersContainer.innerHTML = `
+            <div class="player-card ${currentPlayer === 'X' ? 'active' : ''}" 
+                 style="background-color: ${player1.color};">
+                ${player1.name} (X)
+            </div>
+            <div class="player-card ${currentPlayer === 'O' ? 'active' : ''}" 
+                 style="background-color: ${player2.color};">
+                ${player2.name} (O)
+            </div>
+        `;
+
+        // Atualizar status
+        const currentPlayerName = currentPlayer === 'X' ? player1.name : player2.name;
+        statusElement.textContent = `Vez de ${currentPlayerName}`;
+    }
+
+    handleGameStart(data) {
+        this.showNotification('Novo jogo iniciado!', 'success');
+        this.updateBoard({ board: data.board, currentPlayer: data.currentPlayer });
+        
+        // Forçar atualização do status do jogo
+        setTimeout(() => {
+            this.updateGameStatus();
+        }, 100);
+    }
+
+    updateBoard(data) {
+        const cells = document.querySelectorAll('.cell');
+        
+        cells.forEach((cell, index) => {
+            const value = data.board[index];
+            cell.textContent = value;
+            cell.className = 'cell';
+            
+            if (value) {
+                cell.classList.add(value.toLowerCase());
+                cell.classList.add('taken');
+            }
         });
-      } else {
-        console.log('Célula já ocupada');
-      }
-    } else {
-      console.log('Não é a vez deste jogador');
     }
-  });
 
-  // Jogador desconecta
-  socket.on('disconnect', () => {
-    console.log('Usuário desconectou:', socket.id);
-    
-    // Remover das listas
-    gameState.players = gameState.players.filter(p => p.id !== socket.id);
-    gameState.queue = gameState.queue.filter(p => p.id !== socket.id);
-    
-    // Se um dos jogadores atuais desconectou, encerrar jogo
-    if (gameState.currentGame.player1?.id === socket.id || 
-        gameState.currentGame.player2?.id === socket.id) {
-      
-      gameState.currentGame.gameActive = false;
-      console.log('Jogador ativo desconectou, encerrando jogo');
-      io.emit('playerDisconnected', 'Um jogador desconectou. Reorganizando...');
-      
-      setTimeout(() => {
-        organizeNextGame();
-      }, 2000);
+    clearBoard() {
+        const cells = document.querySelectorAll('.cell');
+        cells.forEach(cell => {
+            cell.textContent = '';
+            cell.className = 'cell';
+        });
     }
-    
-    // Atualizar todos os clientes
-    io.emit('playersUpdate', {
-      players: gameState.players,
-      queue: gameState.queue,
-      currentGame: gameState.currentGame
-    });
-    
-    updateRankings();
-  });
-});
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
+    makeMove(cellIndex) {
+        console.log('Attempting to make move:', cellIndex);
+        console.log('Current game state:', this.gameState?.currentGame);
+        
+        if (!this.gameState.currentGame.gameActive) {
+            this.showNotification('Nenhum jogo ativo!', 'warning');
+            return;
+        }
+
+        const { player1, player2 } = this.gameState.currentGame;
+        const isMyTurn = (this.socket.id === player1?.id && this.gameState.currentGame.currentPlayer === 'X') ||
+                        (this.socket.id === player2?.id && this.gameState.currentGame.currentPlayer === 'O');
+
+        console.log('Is my turn?', isMyTurn);
+        console.log('My socket ID:', this.socket.id);
+        console.log('Player1 ID:', player1?.id);
+        console.log('Player2 ID:', player2?.id);
+        console.log('Current player:', this.gameState.currentGame.currentPlayer);
+        if (!isMyTurn) {
+            this.showNotification('Não é sua vez!', 'warning');
+            return;
+        }
+
+        if (this.gameState.currentGame.board[cellIndex] !== '') {
+            this.showNotification('Posição já ocupada!', 'warning');
+            return;
+        }
+
+        console.log('Making move at cell:', cellIndex);
+        this.socket.emit('makeMove', { cellIndex });
+    }
+
+    handleGameEnd(data) {
+        const { winner, winnerPlayer } = data;
+        
+        // Limpar o tabuleiro após mostrar o resultado
+        setTimeout(() => {
+            if (winner === 'draw') {
+                this.showNotification('Empate!', 'warning');
+            } else {
+                this.showNotification(`${winnerPlayer.name} venceu!`, 'success');
+            }
+            
+            // Limpar o tabuleiro após 2 segundos
+            setTimeout(() => {
+                this.clearBoard();
+            }, 2000);
+        }, 500);
+    }
+
+    updateRankings(rankings) {
+        const rankingsContainer = document.getElementById('rankings');
+        rankingsContainer.innerHTML = '';
+
+        if (rankings.length === 0) {
+            rankingsContainer.innerHTML = '<p>Nenhum jogador ainda</p>';
+            return;
+        }
+
+        rankings.forEach((player, index) => {
+            const rankingItem = document.createElement('div');
+            rankingItem.className = 'ranking-item';
+            
+            if (index === 0) rankingItem.classList.add('first');
+            else if (index === 1) rankingItem.classList.add('second');
+            else if (index === 2) rankingItem.classList.add('third');
+            
+            rankingItem.innerHTML = `
+                <div class="player-info">
+                    <div class="player-color" style="background-color: ${player.color};"></div>
+                    <span class="player-name">${player.name}</span>
+                </div>
+                <span class="player-wins">${player.wins} vitórias</span>
+            `;
+            
+            rankingsContainer.appendChild(rankingItem);
+        });
+    }
+
+    showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        
+        const container = document.getElementById('notifications');
+        container.appendChild(notification);
+        
+        // Remove após 4 segundos
+        setTimeout(() => {
+            notification.remove();
+        }, 4000);
+    }
+}
+
+// Inicializar o jogo quando a página carregar
+document.addEventListener('DOMContentLoaded', () => {
+    new TicTacToeGame();
 });
