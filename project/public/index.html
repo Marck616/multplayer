@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo da Velha Multiplayer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 Jogo da Velha Multiplayer</h1>
+        </header>
+
+        <!-- Tela de Login -->
+        <div id="login-screen" class="screen active">
+            <div class="login-card">
+                <h2>Entre no Jogo</h2>
+                <form id="login-form">
+                    <div class="input-group">
+                        <label for="player-name">Seu Nome:</label>
+                        <input type="text" id="player-name" maxlength="15" required>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label>Escolha sua Cor:</label>
+                        <div class="color-picker">
+                            <input type="radio" id="color-blue" name="color" value="#3498db" checked>
+                            <label for="color-blue" class="color-option" style="background-color: #3498db;"></label>
+                            
+                            <input type="radio" id="color-red" name="color" value="#e74c3c">
+                            <label for="color-red" class="color-option" style="background-color: #e74c3c;"></label>
+                            
+                            <input type="radio" id="color-green" name="color" value="#2ecc71">
+                            <label for="color-green" class="color-option" style="background-color: #2ecc71;"></label>
+                            
+                            <input type="radio" id="color-purple" name="color" value="#9b59b6">
+                            <label for="color-purple" class="color-option" style="background-color: #9b59b6;"></label>
+                            
+                            <input type="radio" id="color-orange" name="color" value="#f39c12">
+                            <label for="color-orange" class="color-option" style="background-color: #f39c12;"></label>
+                            
+                            <input type="radio" id="color-pink" name="color" value="#e91e63">
+                            <label for="color-pink" class="color-option" style="background-color: #e91e63;"></label>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary">Entrar na Sala</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Tela do Jogo -->
+        <div id="game-screen" class="screen">
+            <div class="game-layout">
+                <!-- Área do Jogo -->
+                <div class="game-area">
+                    <div class="match-info">
+                        <div id="current-match" class="match-display">
+                            <div class="waiting-message">
+                                <h3>Aguardando jogadores...</h3>
+                                <p>Você está na posição <span id="queue-position">-</span> da fila</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="game-board-container">
+                        <div id="game-board" class="game-board">
+                            <div class="cell" data-index="0"></div>
+                            <div class="cell" data-index="1"></div>
+                            <div class="cell" data-index="2"></div>
+                            <div class="cell" data-index="3"></div>
+                            <div class="cell" data-index="4"></div>
+                            <div class="cell" data-index="5"></div>
+                            <div class="cell" data-index="6"></div>
+                            <div class="cell" data-index="7"></div>
+                            <div class="cell" data-index="8"></div>
+                        </div>
+                        
+                        <div id="game-result" class="game-result hidden">
+                            <div class="result-content">
+                                <h3 id="result-text"></h3>
+                                <p id="result-subtitle"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="sidebar">
+                    <!-- Ranking -->
+                    <div class="panel">
+                        <h3>🏆 Ranking</h3>
+                        <div id="rankings" class="rankings-list">
+                            <p class="empty-message">Nenhuma vitória ainda</p>
+                        </div>
+                    </div>
+
+                    <!-- Fila de Jogadores -->
+                    <div class="panel">
+                        <h3>👥 Jogadores na Sala</h3>
+                        <div id="players-list" class="players-list">
+                            <p class="empty-message">Nenhum jogador</p>
+                        </div>
+                    </div>
+
+                    <!-- Fila de Espera -->
+                    <div class="panel">
+                        <h3>⏳ Fila de Espera</h3>
+                        <div id="queue-list" class="queue-list">
+                            <p class="empty-message">Fila vazia</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notificações -->
+    <div id="notifications" class="notifications"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
